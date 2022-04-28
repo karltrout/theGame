@@ -2,7 +2,7 @@
 import math
 import random
 from enum import Enum
-from typing import List, Tuple, Dict
+from typing import List, Dict
 
 import kivy
 from kivy import Logger
@@ -28,24 +28,27 @@ class FixType(Enum):
         self.color = color
 
 
-class Fix:
+class Fix(Widget):
     fix_type: FixType = None
-    pos = size = (0, 0)
     id = None
     moves: Dict = {"left": None,
                    "right": None,
                    "forward": None,
                    "no_opt": None}
 
-    def __init__(self, pos: Tuple, fix_type: FixType):
+    def __init__(self, pos: List, fix_type: FixType, **kwargs):
+        super().__init__(**kwargs)
         self.id = id(self)
-        self.pos = pos
         self.fix_type = fix_type
-        self.center = (self.pos[0] + (fix_type.size / 2), self.pos[1] + (fix_type.size / 2))
+        self.size = [self.fix_type.size, self.fix_type.size]
+        self.pos = pos
         self.color = self.fix_type.color
-        self.size = (fix_type.size, fix_type.size)
         for key in self.moves.keys():
             self.moves[key] = self
+        self.bind(pos=self._update)
+
+    def _update(self, *_):
+        self.center = (self.pos[0] + (self.fix_type.size / 2), self.pos[1] + (self.fix_type.size / 2))
 
 
 class Aircraft(Image):
@@ -79,10 +82,12 @@ class Board(Widget):
     def __init__(self, **kwargs):
         super(Board, self).__init__(**kwargs)
         self.bind(pos=self._paint, size=self._paint)
-        self.gate_positions: List[Fix] = []
-        self.fix_l1_positions: List[Fix] = []
-        self.fix_l2_positions: List[Fix] = []
-        self.fix_l3_positions: List[Fix] = []
+        self.gate_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.GATE) for _ in range(6)]
+        self.fix_l1_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.GROUND_FIX) for _ in range(5)]
+        self.fix_l2_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.GROUND_FIX) for _ in range(2)]
+        self.fix_l3_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.GROUND_FIX) for _ in range(2)]
+        self.fix_l4_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.RUNWAY) for _ in range(1)]
+        self.fix_l5_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.RUNWAY) for _ in range(1)]
         self.active_aircraft: List[Aircraft] = []
 
     def start_game(self):
@@ -109,32 +114,29 @@ class Board(Widget):
 
             # gates start 60 px inside boarder of 5
             gate_separation = math.floor((boarder_space - 60) / 5)
-            for i in range(6):
-                gate_position = ((i * gate_separation) + 25, start_height - (0 * height_spacing))
-                gate: Fix = Fix(pos=gate_position, fix_type=FixType.GATE)
-                self.gate_positions.append(gate)
+            for idx, gate in enumerate(self.gate_positions):
+                gate.pos = ((idx * gate_separation) + 25, start_height - (0 * height_spacing))
 
             f1_separation = math.floor((boarder_space - gate_separation - top_spacing) / 4)
-            for i in range(5):
-                f1_position = ((i * f1_separation) + 25 + (gate_separation / 2), start_height - (1 * height_spacing))
+            for idx, gate in enumerate(self.fix_l1_positions):
+                f1_position = ((idx * f1_separation) + 25 + (gate_separation / 2), start_height - (1 * height_spacing))
+                gate.pos = f1_position
 
-                self.fix_l1_positions.append(Fix(pos=f1_position, fix_type=FixType.GROUND_FIX))
             f2_separation = math.floor((boarder_space - f1_separation - top_spacing) / 2)
-            for i in range(2):
-                fix_l2_position = ((i * f2_separation) + f1_separation + 25 + (f1_separation / 2),
-                                   start_height - (2 * height_spacing))
-                self.fix_l2_positions.append(Fix(pos=fix_l2_position, fix_type=FixType.GROUND_FIX))
+            for idx, gate in enumerate(self.fix_l2_positions):
+                gate.pos = ((idx * f2_separation) + f1_separation + 25 + (f1_separation / 2),
+                            start_height - (2 * height_spacing))
 
             f3_separation = math.floor((boarder_space - f1_separation - top_spacing) / 2)
-            for i in range(2):
-                fix_l3_position = ((i * f3_separation) + f1_separation + 25 + (f1_separation / 2),
-                                   start_height - (3 * height_spacing))
-                self.fix_l3_positions.append(Fix(pos=fix_l3_position, fix_type=FixType.GROUND_FIX))
+            for idx, gate in enumerate(self.fix_l3_positions):
+                gate.pos = ((idx * f3_separation) + f1_separation + 25 + (f1_separation / 2),
+                            start_height - (3 * height_spacing))
 
-            fix_l4_position = (math.floor(boarder_space / 2), start_height - (4 * height_spacing))
-            fix_l4 = Fix(pos=fix_l4_position, fix_type=FixType.RUNWAY)
-            fix_l5_position = (math.floor(boarder_space / 2), start_height - (5 * height_spacing))
-            fix_l5 = Fix(pos=fix_l5_position, fix_type=FixType.RUNWAY)
+            for idx, gate in enumerate(self.fix_l4_positions):
+                gate.pos = (math.floor(boarder_space / 2), start_height - (4 * height_spacing))
+
+            for idx, gate in enumerate(self.fix_l5_positions):
+                gate.pos = (math.floor(boarder_space / 2), start_height - (5 * height_spacing))
 
             # draw lines from l1 positions to gate positions
             Color(0, 0, 1, .5)
@@ -172,14 +174,18 @@ class Board(Widget):
             fix2_l3 = self.fix_l3_positions[1]
             Line(points=fix1_l3.center + fix2_l3.center, width=2)
             graph.add_edge((fix1_l3, fix2_l3))
+
             # draw lines from l3 positions to L4 position
             for fix_l3 in self.fix_l3_positions:
-                Line(points=fix_l3.center + fix_l4.center, width=2)
-                graph.add_edge((fix_l3, fix_l4))
+                for fix_l4 in self.fix_l4_positions:
+                    Line(points=fix_l3.center + fix_l4.center, width=2)
+                    graph.add_edge((fix_l3, fix_l4))
 
-            # draw line from l5 positions to l4 position
-            Line(points=fix_l4.center + fix_l5.center, width=2)
-            graph.add_edge((fix_l4, fix_l5))
+            # draw line(s) from l4 positions to l5 position
+            for fix_l4 in self.fix_l4_positions:
+                for fix_l5 in self.fix_l5_positions:
+                    Line(points=fix_l4.center + fix_l5.center, width=2)
+                    graph.add_edge((fix_l4, fix_l5))
 
             Color(1, 0, 0, 1)
             for gate in self.gate_positions:
@@ -205,10 +211,6 @@ class Board(Widget):
 
     def _clear(self):
         self.canvas.clear()
-        self.gate_positions.clear()
-        self.fix_l1_positions.clear()
-        self.fix_l2_positions.clear()
-        self.fix_l3_positions.clear()
 
 
 class GameWindow(FloatLayout):
