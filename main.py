@@ -7,7 +7,7 @@ from typing import List, Dict
 import kivy
 from kivy import Logger
 from kivy.app import App
-from kivy.graphics import Color, Rectangle, Ellipse, Line, Rotate, PushMatrix, PopMatrix
+from kivy.graphics import Color, Rectangle, Ellipse, Line
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
@@ -60,22 +60,16 @@ class Aircraft(Image):
         self.id = id(self)
         self.source = 'graphics/airplaneicon.png'
         self.keep_ratio = True
-        self.size = (10 * size, 10 * size)
+        self.size = (-10 * size, 10 * size)  # the -10 inverts the image so that it faces downward
         self.angle = angle
         self.update_location(location_fix)
-        with self.canvas.before:
-            PushMatrix()
-            Rotate(angle=self.angle, axis=(1, 0, 0), origin=self.center)
 
-        with self.canvas.after:
-            PopMatrix()
-
-    def _update_center(self):
-        pass
+    def update(self):
+        self.center = self.location_fix.center
 
     def update_location(self, new_location_fix: Fix):
         self.location_fix = new_location_fix
-        self.center = new_location_fix.center
+        self.update()
 
 
 class Board(Widget):
@@ -203,7 +197,7 @@ class Board(Widget):
         # Redraw active aircraft
         for aircraft in self.active_aircraft:
             self.remove_widget(aircraft)
-            # aircraft.update_position()
+            aircraft.update()
             self.add_widget(aircraft)
 
         Logger.info(f'number of vertices in matrix {graph.n}')
