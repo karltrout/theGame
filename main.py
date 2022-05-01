@@ -7,7 +7,7 @@ from typing import List, Dict
 import kivy
 from kivy import Logger
 from kivy.app import App
-from kivy.graphics import Color, Rectangle, Ellipse, Line
+from kivy.graphics import Color, Rectangle, Ellipse, Line, Rotate, PushMatrix, PopMatrix
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
@@ -40,7 +40,7 @@ class Fix(Widget):
         super().__init__(**kwargs)
         self.id = id(self)
         self.fix_type = fix_type
-        self.size = [self.fix_type.size, self.fix_type.size]
+        self.size = (self.fix_type.size, self.fix_type.size)
         self.pos = pos
         self.color = self.fix_type.color
         for key in self.moves.keys():
@@ -50,6 +50,10 @@ class Fix(Widget):
     def _update(self, *_):
         self.center = (self.pos[0] + (self.fix_type.size / 2), self.pos[1] + (self.fix_type.size / 2))
 
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            Logger.info(f"You touched Fix {self}! at {touch.pos}")
+
 
 class Aircraft(Image):
     location_fix: Fix = None
@@ -58,9 +62,9 @@ class Aircraft(Image):
     def __init__(self, location_fix: Fix, size, angle, **kwargs):
         super().__init__(**kwargs)
         self.id = id(self)
-        self.source = 'graphics/airplaneicon.png'
+        self.source = 'graphics/airplaneIcon.png'
         self.keep_ratio = True
-        self.size = (-10 * size, 10 * size)  # the -10 inverts the image so that it faces downward
+        self.size = (10 * size, 10 * size)  # the -10 inverts the image so that it faces downward
         self.angle = angle
         self.update_location(location_fix)
 
@@ -70,6 +74,11 @@ class Aircraft(Image):
     def update_location(self, new_location_fix: Fix):
         self.location_fix = new_location_fix
         self.update()
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            Logger.info(f"You touched {self.id}! at {touch.pos}")
+            return True
 
 
 class Board(Widget):
@@ -83,6 +92,47 @@ class Board(Widget):
         self.fix_l4_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.RUNWAY) for _ in range(1)]
         self.fix_l5_positions: List[Fix] = [Fix(pos=[0, 0], fix_type=FixType.RUNWAY) for _ in range(1)]
         self.active_aircraft: List[Aircraft] = []
+        self.graph = self._create_graph()
+
+    def _create_graph(self) -> Graph:
+        graph = Graph()
+        for i, fix in enumerate(self.fix_l1_positions):
+            gate = self.gate_positions[i]
+            gate.moves["right"] = fix
+            graph.add_edge((gate, fix))
+            gate_1 = self.gate_positions[i + 1]
+            gate.moves["left"] = fix
+            graph.add_edge((gate_1, fix))
+
+        # connect L1 nodes to l2 nodes
+        for i in range(5):  # there is a more pythonic way to do this
+            for fix_l1 in self.fix_l1_positions[i * 2:(i * 3) + 3]:
+                for fix_l2 in self.fix_l2_positions[i:i + 1]:
+                    graph.add_edge((fix_l1, fix_l2))
+
+        # connect L2 fixes
+        graph.add_edge((self.fix_l2_positions[0], self.fix_l2_positions[1]))
+
+        # connect l2 nodes to L3 nodes
+        for i in range(2):
+            graph.add_edge(((self.fix_l2_positions[i]), (self.fix_l3_positions[i])))
+
+        # connect L3 nodes
+        graph.add_edge(((self.fix_l3_positions[0]), (self.fix_l3_positions[1])))
+
+        # connect l3 nodes to L4 nodes
+        for fix_l3 in self.fix_l3_positions:
+            for fix_l4 in self.fix_l4_positions:
+                graph.add_edge((fix_l3, fix_l4))
+
+        # connect l4 nodes to l5 nodes
+        for fix_l4 in self.fix_l4_positions:
+            for fix_l5 in self.fix_l5_positions:
+                graph.add_edge((fix_l4, fix_l5))
+
+        Logger.info(f'number of vertices in matrix {graph.n}')
+        Logger.info(f'number of edges in matrix {graph.m}')
+        return graph
 
     def start_game(self):
         start_pos = random.choice(self.gate_positions)
@@ -98,7 +148,6 @@ class Board(Widget):
         boarder_width = 5
         # boarder space is the spacing around the fixes
         boarder_space = self.width - (2 * boarder_width)
-        graph = Graph()
         # Add some things
         with self.canvas:
             Color(0.2, 0.2, 0.2, .5)
@@ -136,24 +185,18 @@ class Board(Widget):
             Color(0, 0, 1, .5)
             for i, fix in enumerate(self.fix_l1_positions):
                 gate = self.gate_positions[i]
-                gate.moves["right"] = fix
                 Line(points=gate.center + fix.center, width=2)
-                graph.add_edge((gate, fix))
-                gate = self.gate_positions[i + 1]
-                gate.moves["left"] = fix
-                Line(points=gate.center + fix.center, width=2)
-                graph.add_edge((gate, fix))
+                gate_1 = self.gate_positions[i + 1]
+                Line(points=gate_1.center + fix.center, width=2)
 
             # draw lines from L1 positions to l2 positions
             for i in range(5):
                 for fix_l1 in self.fix_l1_positions[i * 2:(i * 3) + 3]:
                     for fix_l2 in self.fix_l2_positions[i:i + 1]:
                         Line(points=fix_l1.center + fix_l2.center, width=2)
-                        graph.add_edge((fix_l1, fix_l2))
 
             # connect L2 fixes
             Line(points=self.fix_l2_positions[0].center + self.fix_l2_positions[1].center, width=2)
-            graph.add_edge((self.fix_l2_positions[0], self.fix_l2_positions[1]))
 
             # draw lines from l2 positions to L3 positions
             for i in range(2):
@@ -161,25 +204,21 @@ class Board(Widget):
                 fix_l3 = self.fix_l3_positions[i]
                 # draw line from this l3 position to the 2 l2 positions
                 Line(points=fix_l2.center + fix_l3.center, width=2)
-                graph.add_edge((fix_l2, fix_l3))
 
             # connect L3 fixes
             fix1_l3 = self.fix_l3_positions[0]
             fix2_l3 = self.fix_l3_positions[1]
             Line(points=fix1_l3.center + fix2_l3.center, width=2)
-            graph.add_edge((fix1_l3, fix2_l3))
 
             # draw lines from l3 positions to L4 position
             for fix_l3 in self.fix_l3_positions:
                 for fix_l4 in self.fix_l4_positions:
                     Line(points=fix_l3.center + fix_l4.center, width=2)
-                    graph.add_edge((fix_l3, fix_l4))
 
             # draw line(s) from l4 positions to l5 position
             for fix_l4 in self.fix_l4_positions:
                 for fix_l5 in self.fix_l5_positions:
                     Line(points=fix_l4.center + fix_l5.center, width=2)
-                    graph.add_edge((fix_l4, fix_l5))
 
             Color(1, 0, 0, 1)
             for gate in self.gate_positions:
@@ -199,9 +238,6 @@ class Board(Widget):
             self.remove_widget(aircraft)
             aircraft.update()
             self.add_widget(aircraft)
-
-        Logger.info(f'number of vertices in matrix {graph.n}')
-        Logger.info(f'number of edges in matrix {graph.m}')
 
     def _clear(self):
         self.canvas.clear()
